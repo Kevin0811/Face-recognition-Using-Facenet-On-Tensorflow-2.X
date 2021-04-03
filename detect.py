@@ -9,7 +9,7 @@ import pickle
 
 
 confidence_t=0.99
-recognition_t=0.5
+recognition_t=0.8
 required_size = (160,160)
 
 def get_face(img, box):
@@ -32,6 +32,7 @@ def load_pickle(path):
     return encoding_dict
 
 def detect(img ,detector,encoder,encoding_dict):
+    name = None
     img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     results = detector.detect_faces(img_rgb)
     for res in results:
@@ -56,8 +57,48 @@ def detect(img ,detector,encoder,encoding_dict):
             cv2.rectangle(img, pt_1, pt_2, (0, 255, 0), 2)
             cv2.putText(img, name + f'__{distance:.2f}', (pt_1[0], pt_1[1] - 5), cv2.FONT_HERSHEY_SIMPLEX, 1,
                         (0, 200, 200), 2)
-    return img 
+    return img ,name
 
+def motion_init(frame):
+    avg_img = cv2.blur(frame, (4, 4))
+    avg_float = np.float32(avg_img)
+    return avg_float, avg_img
+
+def motion(frame, avg_float, avg_img, count=1, time=3, sensitive=0.3):
+
+    different_area = 0
+    frame_h ,frame_w, _ = frame.shape
+    # 模糊處理
+    blur = cv2.blur(frame, (4, 4))
+
+    # 計算目前影格與平均影像的差異值
+    diff = cv2.absdiff(avg_img, blur)
+
+    # 將圖片轉為灰階
+    gray = cv2.cvtColor(diff, cv2.COLOR_BGR2GRAY)
+
+    # 篩選出變動程度大於門檻值的區域
+    ret, thresh = cv2.threshold(gray, 25, 255, cv2.THRESH_BINARY)
+
+    # 使用型態轉換函數去除雜訊
+    kernel = np.ones((5, 5), np.uint8)
+    thresh = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel, iterations=2)
+    thresh = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel, iterations=2)
+
+    # 產生等高線
+    thresh = np.uint8(thresh)
+    cnts,_ = cv2.findContours(thresh.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    # 更新平均影像
+    cv2.accumulateWeighted(blur, avg_float, 0.01)
+    avg_img = cv2.convertScaleAbs(avg_float)
+
+    if cnts is not None:
+        for c in cnts:
+            different_area+=cv2.contourArea(c)
+        if different_area/(frame_h*frame_w) > sensitive:
+            return True, avg_float, avg_img, count, time
+    return False, avg_float, avg_img, count, time
 
 
 if __name__ == "__main__":
@@ -68,23 +109,36 @@ if __name__ == "__main__":
     encodings_path = 'encodings/encodings.pkl'
     face_detector = mtcnn.MTCNN()
     encoding_dict = load_pickle(encodings_path)
+    is_moving = False
     
-    cap = cv2.VideoCapture(0)
+    #cap = cv2.VideoCapture(0)
+    video = cv2.VideoCapture('rtsp://192.168.31.18:554/unicast')
+    ret, frame = video.read()
 
-    while cap.isOpened():
-        ret,frame = cap.read()
+    if not ret:
+        print("CAM NOT OPEND") 
+    else:
+        avg_float, avg_img = motion_init(frame)
+
+    while video.isOpened():
+        ret,frame = video .read()
 
         if not ret:
             print("CAM NOT OPEND") 
             break
-        
-        frame= detect(frame , face_detector , face_encoder , encoding_dict)
+
+        is_moving, avg_float, avg_img, _, _ = motion(frame, avg_float, avg_img)
+
+        if is_moving:
+            frame= detect(frame , face_detector , face_encoder , encoding_dict)
 
         cv2.imshow('camera', frame)
 
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
 
+    video.release()
+    cv2.destroyAllWindows()
     
 
 

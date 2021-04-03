@@ -3,6 +3,13 @@ from tensorflow.keras.layers import Conv2D, Activation, Input, Add, MaxPooling2D
 from tensorflow.keras.models import Model, Sequential
 from tensorflow.keras import backend as K
 
+import tensorflow as tf
+
+config = tf.compat.v1.ConfigProto()
+config.gpu_options.allocator_type = 'BFC' #A "Best-fit with coalescing" algorithm, simplified from a version of dlmalloc.
+config.gpu_options.per_process_gpu_memory_fraction = 0.8
+config.gpu_options.allow_growth = True
+tf.compat.v1.keras.backend.set_session(tf.compat.v1.Session(config=config)) 
 
 def scaling(x, scale):
 	return x * scale
